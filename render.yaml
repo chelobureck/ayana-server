@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: ai-tutor-api
+    env: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        value: https://api.openrouter.ai/v1
+      - key: OPENAI_MODEL
+        value: meta-llama/llama-4-scout-17b-16e-instruct
+      - key: DB_HOST
+        value: ${DATABASE_INTERNAL_HOST}
+      - key: DB_PORT
+        value: ${DATABASE_INTERNAL_PORT}
+      - key: DB_USER
+        value: ${DATABASE_USER}
+      - key: DB_PASSWORD
+        value: ${DATABASE_PASSWORD}
+      - key: DB_NAME
+        value: ${DATABASE_NAME}
+      - key: REDIS_HOST
+        value: ${REDIS_HOST}
+      - key: REDIS_PORT
+        value: ${REDIS_PORT}
+      - key: REDIS_DB
+        value: "0"
+      - key: APP_CORS_ORIGINS
+        value: "*"
+    dockerCommand: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000"] 
