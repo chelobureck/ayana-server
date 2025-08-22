@@ -21,9 +21,9 @@ async def on_startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-app.include_router(health.router)
-app.include_router(auth.router)
-app.include_router(lesson.router)
-app.include_router(project.router)
+app.include_router(health.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(lesson.router, prefix="/api/v1")
+app.include_router(project.router, prefix="/api/v1")
 
 # Run: uvicorn app.main:app --host 0.0.0.0 --port 8000 

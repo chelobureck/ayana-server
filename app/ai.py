@@ -4,8 +4,12 @@ from .config import settings
 from .cache import get_cached_completion, set_cached_completion
 from .prompts import SYSTEM_ORCHESTRATOR, ROLE_AYYA, ROLE_AYANA, CORRECTION_INSTRUCTIONS, PROJECT_GUIDE
 
+def build_auth_header() -> str:
+    api_key = settings.OPENAI_API_KEY or (settings.GROQ_API_KEY or "")
+    return f"Bearer {api_key}"
+
 HEADERS = {
-    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+    "Authorization": build_auth_header(),
     "Content-Type": "application/json",
 }
 
@@ -21,10 +25,13 @@ async def chat_completion(messages: list[dict]) -> dict:
         "temperature": 0.7,
         "response_format": {"type": "json_object"},
     }
-    async with httpx.AsyncClient(base_url=settings.OPENAI_BASE_URL, timeout=settings.OPENAI_TIMEOUT) as client:
-        r = await client.post("/chat/completions", headers=HEADERS, content=orjson.dumps(payload))
-        r.raise_for_status()
-        data = r.json()
+    try:
+        async with httpx.AsyncClient(base_url=settings.OPENAI_BASE_URL, timeout=settings.OPENAI_TIMEOUT) as client:
+            r = await client.post("/chat/completions", headers=HEADERS, content=orjson.dumps(payload))
+            r.raise_for_status()
+            data = r.json()
+    except httpx.HTTPError as e:
+        raise RuntimeError(f"LLM request failed: {e}")
     choice = data["choices"][0]["message"]["content"]
     set_cached_completion(messages, choice)
     return orjson.loads(choice)

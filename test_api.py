@@ -8,7 +8,7 @@ import asyncio
 import httpx
 import json
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8000/api/v1"
 
 async def test_health():
     """Тест health endpoint"""
