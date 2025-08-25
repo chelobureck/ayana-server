@@ -29,6 +29,8 @@ class Settings(BaseSettings):
 
     # Google OAuth
     GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_REDIRECT_URI: str | None = None
+    GOOGLE_CLIENT_SECRET: str | None = None
 
     # JWT Security
     JWT_SECRET: str = "dev-secret-change-me"
@@ -45,6 +47,8 @@ class Settings(BaseSettings):
     # Verification token settings
     VERIFICATION_TOKEN_LENGTH: int = 7
     VERIFICATION_TOKEN_EXPIRE_SECONDS: int = 45  # 45 секунд как требовалось
+
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     class Config:
         env_file = ".env"

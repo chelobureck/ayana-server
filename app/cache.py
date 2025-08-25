@@ -166,5 +166,31 @@ class TokenCache:
             print(f"Error deleting password reset token: {e}")
             return False
 
+
+def set_cached_completion(key: str, value: Any, expires_in: int = 300) -> bool:
+    """
+    Сохраняет результат в кэш
+    """
+    try:
+        redis_client.setex(f"completion:{key}", expires_in, json.dumps(value))
+        return True
+    except Exception as e:
+        print(f"Error setting cache: {e}")
+        return False
+
+
+def get_cached_completion(key: str) -> Optional[Any]:
+    """
+    Получает результат из кэша
+    """
+    try:
+        data = redis_client.get(f"completion:{key}")
+        if data:
+            return json.loads(data)
+        return None
+    except Exception as e:
+        print(f"Error getting cache: {e}")
+        return None
+
 # Создаем глобальный экземпляр кэша токенов
 token_cache = TokenCache() 

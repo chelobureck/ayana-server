@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from ..db import get_db
+from ..db import get_db, get_session
 from ..models import User, ChatSession, VerificationToken
 from ..schemas import (
     UserRegistrationRequest, UserLoginRequest, TokenVerificationRequest,
@@ -16,6 +17,8 @@ from google.auth.transport import requests as google_requests
 import jwt
 from datetime import datetime, timedelta
 import logging
+import httpx
+from ..deps import create_access_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -512,50 +515,6 @@ async def change_password(
             detail="Внутренняя ошибка сервера"
         )
 
-@router.get("/profile", response_model=UserProfileResponse)
-async def get_user_profile(
-    current_user: dict = Depends(lambda x: x),  # Будет заменено на реальную аутентификацию
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Получение профиля пользователя.
-    """
-    try:
-        # TODO: Добавить реальную аутентификацию
-        # user = await get_current_user(current_user, db)
-        
-        # Подсчет количества сессий
-        # sessions_count = await db.scalar(
-        #     select(func.count(ChatSession.id)).where(ChatSession.user_id == user.id)
-        # )
-        
-        # return UserProfileResponse(
-        #     user_id=user.id,
-        #     username=user.username,
-        #     email=user.email,
-        #     is_verified=user.is_verified,
-        #     created_at=user.created_at.isoformat(),
-        #     sessions_count=sessions_count or 0
-        # )
-        
-        # Временная заглушка
-        return UserProfileResponse(
-            user_id=1,
-            username="test_user",
-            email="test@example.com",
-            is_verified=True,
-            created_at=datetime.utcnow().isoformat(),
-            sessions_count=0
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting user profile: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Внутренняя ошибка сервера"
-        )
 
 # Оставляем Google OAuth для совместимости
 @router.post("/google")
@@ -629,3 +588,116 @@ async def login_with_google(
         "token_type": "bearer",
         "user_id": user.id
     }
+
+
+@router.get("/google-login")
+async def google_login():
+    """
+    Генерация URL для авторизации через Google.
+    Пользователь должен перейти по этой ссылке в браузере.
+    """
+    logger.info("Google Redirect URI: %s", settings.GOOGLE_REDIRECT_URI)
+    google_auth_url = (
+        "https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={settings.GOOGLE_CLIENT_ID}&"
+        f"redirect_uri={settings.GOOGLE_REDIRECT_URI}&"   # ✅ только callback!
+        "response_type=code&"
+        "scope=openid%20email%20profile&"
+        "access_type=offline"
+    )
+    return {"auth_url": google_auth_url}
+
+
+@router.get("/google-callback", response_model=UserProfileResponse)
+async def google_callback(code: str, session: AsyncSession = Depends(get_session)):
+    """
+    Обработка callback от Google:
+    1. Получение access_token
+    2. Получение профиля пользователя
+    3. Проверка наличия пользователя в БД или создание нового
+    4. Генерация JWT токенов
+    5. Возврат профиля и токенов
+    """
+    try:
+        logger.info(f"Google callback received code: {code}")  # ✅ логируем код из query
+        logger.info(f"Google redirect_uri (callback stage): {settings.GOOGLE_REDIRECT_URI}")  # ✅ логируем редирект
+        # 1. Получаем access_token от Google
+        async with httpx.AsyncClient() as client:
+            token_resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": settings.GOOGLE_CLIENT_ID,
+                    "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": settings.GOOGLE_REDIRECT_URI,  # ✅ должен совпадать 1в1
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            token_data = token_resp.json()
+            access_token = token_data.get("access_token")
+            if not access_token:
+                logger.error(f"Google Token Error: {token_data}")
+                raise HTTPException(status_code=400, detail="Не удалось получить токен Google")
+
+        # 2. Получаем профиль пользователя
+        async with httpx.AsyncClient() as client:
+            userinfo_resp = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            userinfo = userinfo_resp.json()
+
+        email = userinfo.get("email")
+        username = userinfo.get("name") or email.split("@")[0]
+
+        # 3. Проверяем пользователя в базе
+        result = await session.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+
+        # 4. Если пользователя нет, создаем нового
+        if not user:
+            user = User(
+                email=email,
+                username=username,
+                display_name=username,
+                password_hash="google_oauth",
+                uid=f"google:{userinfo.get('sub')}",
+                is_verified=True,
+                created_at=datetime.utcnow()
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+
+        # 5. Генерация JWT
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_jwt = create_access_token(
+            data={"sub": user.email}, 
+            expires_delta=access_token_expires
+        )
+        refresh_token_expires = timedelta(days=7)
+        refresh_jwt = create_access_token(
+            data={"sub": user.email, "type": "refresh"},
+            expires_delta=refresh_token_expires
+        )
+
+        # 6. Ответ
+        return UserProfileResponse(
+            user_id=user.id,
+            username=user.username,
+            email=user.email,
+            is_verified=True,
+            created_at=user.created_at.isoformat(),
+            sessions_count=0,
+            access_token=access_jwt,
+            refresh_token=refresh_jwt,
+            token_type="bearer"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка Google OAuth: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ошибка авторизации через Google"
+        )

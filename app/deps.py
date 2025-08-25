@@ -1,6 +1,8 @@
 from fastapi import Header, HTTPException, status
 from .config import settings
 import jwt
+from datetime import datetime, timedelta
+from typing import Optional
 
 async def get_current_user_uid(authorization: str | None = Header(default=None)) -> str:
     # Expect Authorization: Bearer <token>
@@ -25,3 +27,13 @@ async def get_current_user_uid(authorization: str | None = Header(default=None))
         if settings.APP_DEBUG and token:
             return token
         raise HTTPException(status_code=401, detail="Invalid token") 
+    
+async def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return encoded_jwt
