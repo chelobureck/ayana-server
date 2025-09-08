@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_REDIRECT_URI: str | None = None
     GOOGLE_CLIENT_SECRET: str | None = None
+    GOOGLE_REFRESH_TOKEN: str | None = None
 
     # JWT Security
     JWT_SECRET: str = "dev-secret-change-me"

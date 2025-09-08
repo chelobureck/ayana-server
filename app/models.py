@@ -14,6 +14,7 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(128))  # Отображаемое имя (для совместимости)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     sessions = relationship("ChatSession", back_populates="user")
+    
 
 class VerificationToken(Base):
     __tablename__ = "verification_tokens"
